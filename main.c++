@@ -108,7 +108,15 @@ void serializePawnMoves(const Board& board, movesList& list){
     uint64_t wPawns = board.pieces[White][Pawn];
     uint64_t singlePushes = (wPawns << 8) & emptySquares;
     while (singlePushes != 0){
+        int dest = __builtin_ctzll(singlePushes);
+        int src = dest - 8;
         
+        uint16_t move = src | (dest << 6);
+
+        list.addMove(move);
+
+        singlePushes &= (singlePushes-1);
+
     }
     uint64_t doublePushes = (singlePushes << 8) & emptySquares & rank4;
 

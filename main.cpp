@@ -88,21 +88,39 @@ struct movesList
     }
 };
 
-int main()
+uint64_t knightAttacks[64];
+
+void knightLookup()
 {
-    Board chessBoard;
-};
+    uint64_t notFileA = 0xFEFEFEFEFEFEFEFEULL;
+    uint64_t notFileB = 0xFCFCFCFCFCFCFCFCULL;
+    uint64_t notFileG = 0x3F3F3F3F3F3F3F3FULL;
+    uint64_t notFileH = 0x7F7F7F7F7F7F7F7FULL;
 
-movesList generateMoves(const Board &board)
-{
+    for (int square = 0; square < 64; ++square)
+    {
+        uint64_t knight = 1ULL << square;
+        uint64_t attacks = 0ULL;
 
-    // uint16_t move: bits: 0-5 source, 6-11 destination, 12-13 promotion piece, 13-16 flags (en passsant, castle, double push)
+        // up 2 right 1
+        attacks |= (knight << 17) & notFileA;
+        // up 2 left 1
+        attacks |= (knight << 15) & notFileH;
+        // up 1 right 2
+        attacks |= (knight << 10) & notFileA & notFileB;
+        // up 1 left 2
+        attacks |= (knight << 6) & notFileG & notFileH;
+        // down 2 right 1
+        attacks |= (knight >> 17) & notFileH;
+        // down 2 left 1
+        attacks |= (knight >> 15) & notFileA;
+        // down 1 right 2
+        attacks |= (knight >> 10) & notFileH & notFileG;
+        // down 1 left 2
+        attacks |= (knight >> 6) & notFileA & notFileB;
 
-    movesList moves;
-
-    serializePawnMoves(board, moves);
-
-    return moves;
+        knightAttacks[square] = attacks;
+    }
 }
 
 void serializePawnMoves(const Board &board, movesList &list)
@@ -240,6 +258,32 @@ void serializePawnMoves(const Board &board, movesList &list)
     }
 }
 
+void serializeKnightMoves(const Board &board, movesList &list)
+{
+    Color play = board.sideToMove;
+    uint64_t myKnights = board.pieces[play][Knight];
+    uint64_t playPieces = (play == White) ? board.whitePieces : board.blackPieces;
+
+    while (myKnights != 0)
+    {
+        int src = __builtin_ctzll(myKnights);
+
+        uint64_t validMoves = knightAttacks[src] & ~playPieces;
+
+        while (validMoves != 0)
+        {
+            int dest = __builtin_ctzll(validMoves);
+
+            uint16_t move = src | dest << 6;
+
+            list.addMove(move);
+
+            validMoves &= (validMoves - 1);
+        }
+        myKnights &= (myKnights - 1);
+    }
+}
+
 void printBoard(const Board &board)
 {
     const char symbolsW[] = {'P', 'N', 'B', 'R', 'K', 'Q'};
@@ -260,13 +304,13 @@ void printBoard(const Board &board)
             bool pieceFound = false;
             for (int p = 0; p < 6; ++p)
             {
-                if (board.whitePieces & squareMask)
+                if (board.pieces[White][p] & squareMask)
                 {
                     pieceChar = symbolsW[p];
                     pieceFound = true;
                     break;
                 }
-                if (board.blackPieces & squareMask)
+                if (board.pieces[Black][p] & squareMask)
                 {
                     pieceChar = symbolsB[p];
                     pieceFound = true;
@@ -282,3 +326,27 @@ void printBoard(const Board &board)
     std::cout << "    a b c d e f g h\n\n";
     std::cout << "Side to move: " << (board.sideToMove == White ? "White" : "Black");
 }
+
+movesList generateMoves(const Board &board)
+{
+
+    // uint16_t move: bits: 0-5 source, 6-11 destination, 12-13 promotion piece, 13-16 flags (en passsant, castle, double push)
+
+    movesList moves;
+
+    serializePawnMoves(board, moves);
+    serializeKnightMoves(board, moves);
+
+    return moves;
+}
+
+int main()
+{
+    knightLookup();
+    Board chessBoard;
+
+    printBoard(chessBoard);
+
+    movesList moves = generateMoves(chessBoard);
+    std::cout << moves.count;
+};

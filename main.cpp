@@ -586,6 +586,7 @@ int main()
     printBoard(chessBoard);
 
     movesList moves = generateMoves(chessBoard);
-    
+    makeMove(chessBoard, moves.moves[10]);
     std::cout << moves.count;
+    printBoard(chessBoard);
 };

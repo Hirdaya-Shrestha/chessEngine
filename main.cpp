@@ -524,13 +524,68 @@ movesList generateMoves(const Board &board)
     return moves;
 }
 
+bool makeMove(Board &board, uint16_t move)
+{
+    int src = move & 0x3F;
+    int dest = (move >> 6) & 0x3F;
+
+    uint64_t srcMask = 1ULL << src;
+    uint64_t destMask = 1ULL << dest;
+
+    Color movingSide = board.sideToMove;
+    Color enemySide = movingSide == White ? Black : White;
+
+    int movingPiece = -1;
+
+    for (int i = 0; i < 6; ++i)
+    {
+        if (board.pieces[movingSide][i] & srcMask)
+        {
+            movingPiece = i;
+            break;
+        }
+    }
+    if (movingPiece == -1)
+    {
+        return false;
+    }
+
+    uint64_t sidePieces = (movingSide == White) ? board.whitePieces : board.blackPieces;
+
+    if (sidePieces & destMask)
+    {
+        return false;
+    }
+
+    board.pieces[movingSide][movingPiece] &= ~srcMask;
+
+    for (int i = 0; i < 6; ++i)
+    {
+        if (board.pieces[enemySide][i] & destMask)
+        {
+            board.pieces[enemySide][i] &= ~destMask;
+            break;
+        }
+    }
+
+    board.pieces[movingSide][movingPiece] |= destMask;
+
+    board.updateOccupancy();
+
+    board.sideToMove = enemySide;
+
+    return true;
+}
+
 int main()
 {
     knightLookup();
+    kingLookup();
     Board chessBoard;
 
     printBoard(chessBoard);
 
     movesList moves = generateMoves(chessBoard);
+    
     std::cout << moves.count;
 };

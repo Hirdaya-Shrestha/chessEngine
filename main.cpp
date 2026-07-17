@@ -710,7 +710,7 @@ int mouseToSquare(int x, int y, int squareSize)
     int file = x / squareSize;
     int rank = y / squareSize;
 
-    if (file < 0 || file > 8)
+    if (file < 0 || file >= 8)
     {
         return -1;
     }
@@ -721,7 +721,7 @@ int mouseToSquare(int x, int y, int squareSize)
 
     int rankReal = 7 - rank;
 
-    return rank * 8 + file;
+    return rankReal * 8 + file;
 }
 
 int main()

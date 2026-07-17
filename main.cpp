@@ -684,6 +684,46 @@ void drawPieces(const Board &board, int squareSize)
     }
 }
 
+void drawSelectedSquare(int square, int squareSize)
+{
+    if (square == -1)
+    {
+        return;
+    }
+
+    int file = square % 8;
+    int rank = square / 8;
+
+    int realRank = 7 - rank;
+
+    DrawRectangleLinesEx(
+        Rectangle{
+            static_cast<float>(file * squareSize),
+            static_cast<float>(realRank * squareSize),
+            static_cast<float>(squareSize),
+            static_cast<float>(squareSize)},
+        5.0f, YELLOW);
+}
+
+int mouseToSquare(int x, int y, int squareSize)
+{
+    int file = x / squareSize;
+    int rank = y / squareSize;
+
+    if (file < 0 || file > 8)
+    {
+        return -1;
+    }
+    if (rank < 0 || rank > 8)
+    {
+        return -1;
+    }
+
+    int rankReal = 7 - rank;
+
+    return rank * 8 + file;
+}
+
 int main()
 {
     knightLookup();
@@ -694,56 +734,85 @@ int main()
     const int squareSize = 100;
     const int boardSize = squareSize * 8;
 
+    int selectedSqaure = -1;
+
     InitWindow(boardSize, boardSize, "Chess");
     SetTargetFPS(60);
 
     printBoard(chessBoard);
     while (!WindowShouldClose())
     {
+        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+        {
+            Vector2 mouse = GetMousePosition();
+            int clickedSquare = mouseToSquare(static_cast<int>(mouse.x), static_cast<int>(mouse.y), squareSize);
+
+            if (clickedSquare != -1)
+            {
+                if (selectedSqaure == -1)
+                {
+                    selectedSqaure = clickedSquare;
+                }
+                else
+                {
+                    moves = generateMoves(chessBoard);
+                    uint16_t foundMove = 0;
+
+                    if (findMove(moves, selectedSqaure, clickedSquare, foundMove))
+                    {
+                        makeMove(chessBoard, foundMove);
+                    }
+                    selectedSqaure = -1;
+                }
+            }
+        }
         BeginDrawing();
+
         ClearBackground(RAYWHITE);
+
         drawBoard(squareSize);
+        drawSelectedSquare(selectedSqaure, squareSize);
         drawPieces(chessBoard, squareSize);
+
         EndDrawing();
+        // moves = generateMoves(chessBoard);
 
-        printBoard(chessBoard);
-        moves = generateMoves(chessBoard);
+        //     std::cout << "\n enter a move like e2e3 or f2f4";
+        //     std::string input;
+        //     std::cin >> input;
 
-        std::cout << "\n enter a move like e2e3 or f2f4";
-        std::string input;
-        std::cin >> input;
+        //     if (input == "quit")
+        //     {
+        //         break;
+        //     }
+        //     else if (input.length() != 4)
+        //     {
+        //         std::cout << "\n invalid format, please say something like a2a4";
+        //         continue;
+        //     }
 
-        if (input == "quit")
-        {
-            break;
-        }
-        else if (input.length() != 4)
-        {
-            std::cout << "\n invalid format, please say something like a2a4";
-            continue;
-        }
+        //     int source = cordToMove(input.substr(0, 2));
+        //     int dest = cordToMove(input.substr(2, 2));
 
-        int source = cordToMove(input.substr(0, 2));
-        int dest = cordToMove(input.substr(2, 2));
+        //     if (source == -1 || dest == -1)
+        //     {
+        //         std::cout << "\n invalid move";
+        //     }
 
-        if (source == -1 || dest == -1)
-        {
-            std::cout << "\n invalid move";
-        }
+        //     uint16_t foundMove;
 
-        uint16_t foundMove;
+        //     if (!findMove(moves, source, dest, foundMove))
+        //     {
+        //         std::cout << "\n that is not a legal move";
+        //         continue;
+        //     }
+        //     if (!makeMove(chessBoard, foundMove))
+        //     {
+        //         std::cout << "\n could not make that move";
+        //     }
+        // }
 
-        if (!findMove(moves, source, dest, foundMove))
-        {
-            std::cout << "\n that is not a legal move";
-            continue;
-        }
-        if (!makeMove(chessBoard, foundMove))
-        {
-            std::cout << "\n could not make that move";
-        }
-    }
-
-    makeMove(chessBoard, moves.moves[10]);
-    std::cout << moves.count;
-};
+        // makeMove(chessBoard, moves.moves[10]);
+        // std::cout << moves.count;
+    };
+}

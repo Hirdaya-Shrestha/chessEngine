@@ -1,0 +1,29 @@
+name: Build C++ Raylib Project
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Raylib
+        run: brew install raylib
+
+      - name: Compile
+        run: |
+          clang++ -std=c++20 main.cpp -o main \
+            -I"$(brew --prefix raylib)/include" \
+            -L"$(brew --prefix raylib)/lib" \
+            -lraylib \
+            -framework IOKit \
+            -framework Cocoa \
+            -framework OpenGL
+
+      - name: Confirm executable was created
+        run: test -f main

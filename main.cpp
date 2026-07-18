@@ -63,7 +63,8 @@ public:
     myColor sideToMove = White;
 
     int castlingRights;
-    int enPassantSquare;
+    uint64_t enPassantSquares;
+    int enPassantDest;
 
     Board()
     {
@@ -196,6 +197,25 @@ void serializePawnMoves(const Board &board, movesList &list)
 
     if (board.sideToMove == White)
     {
+        if (board.enPassantSquares != 0ULL)
+        {
+            uint64_t enPassantPawns = board.enPassantSquares & board.pieces[White][Pawn];
+            while (enPassantPawns != 0ULL)
+            {
+                int src = __builtin_ctzll(enPassantPawns);
+                int dest = board.enPassantDest;
+
+                int diff = dest - src;
+                if (diff == 7 || diff == 9)
+                {
+                    uint16_t enpassantFlag = 2 << 12;
+                    uint16_t move = src | (dest << 6) | enpassantFlag;
+
+                    list.addMove(move);
+                }
+                enPassantPawns &= enPassantPawns - 1;
+            }
+        }
         uint64_t rank4 = 0xff000000ULL;
 
         uint64_t wPawns = board.pieces[White][Pawn];
@@ -261,6 +281,25 @@ void serializePawnMoves(const Board &board, movesList &list)
     }
     else if (board.sideToMove == Black)
     {
+        if (board.enPassantSquares != 0ULL)
+        {
+            uint64_t enPassantPawns = board.enPassantSquares & board.pieces[Black][Pawn];
+            while (enPassantPawns != 0ULL)
+            {
+                int src = __builtin_ctzll(enPassantPawns);
+                int dest = board.enPassantDest;
+
+                int diff = src - dest;
+                if (diff == 7 || diff == 9)
+                {
+                    uint16_t enpassantFlag = 2 << 12;
+                    uint16_t move = src | (dest << 6) | enpassantFlag;
+
+                    list.addMove(move);
+                }
+                enPassantPawns &= enPassantPawns - 1;
+            }
+        }
         uint64_t rank5 = 0xff00000000ULL;
         uint64_t bPawns = board.pieces[Black][Pawn];
 
@@ -668,9 +707,31 @@ bool makeMove(Board &board, uint16_t move)
         }
     }
 
+    uint16_t flag = (move >> 12) & 0xF;
+    if (flag == 2)
+    {
+        int capturedPawn = (movingSide == White) ? dest - 8 : dest + 8;
+
+        board.pieces[enemySide][Pawn] &= ~(1ULL << capturedPawn);
+    }
+
     board.pieces[movingSide][movingPiece] |= destMask;
 
     board.updateOccupancy();
+
+    board.enPassantSquares = 0ULL;
+    board.enPassantDest = -1;
+
+    if (movingPiece == Pawn && std::abs(dest - src) == 16)
+    {
+        const uint64_t notFileA = 0xFEFEFEFEFEFEFEFEULL;
+        const uint64_t notFileH = 0x7F7F7F7F7F7F7F7FULL;
+
+        uint64_t adjacentSquares = ((destMask & notFileH) << 1) | ((destMask & notFileA) >> 1);
+
+        board.enPassantSquares = adjacentSquares & board.pieces[enemySide][Pawn];
+        board.enPassantDest = (src + dest) / 2;
+    }
 
     if (isInCheck(board))
     {

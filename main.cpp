@@ -5,6 +5,8 @@
 
 using namespace std;
 
+// this is a comment to update git :) (count : 1)
+
 struct PieceTexture
 {
     Texture2D textures[2][6];
@@ -553,8 +555,74 @@ movesList generateMoves(const Board &board)
     return moves;
 }
 
+int getPieceAtSquare(const Board &board, int square)
+{
+    uint64_t mask = 1ULL << square;
+
+    for (int piece = 0; piece < 6; ++piece)
+    {
+        if (board.pieces[board.sideToMove][piece] & mask)
+        {
+            return piece;
+        }
+    }
+    return -1;
+}
+
+bool isInCheck(Board &board)
+{
+    // run after move is made, but before finalizing move
+    myColor side = board.sideToMove;
+    myColor opponent = (side == White) ? Black : White;
+
+    board.sideToMove = opponent;
+
+    movesList moves = generateMoves(board);
+
+    board.sideToMove = side;
+
+    uint64_t kingSrc = board.pieces[side][King];
+
+    uint64_t pawns = board.pieces[opponent][Pawn];
+    uint64_t pawnAttacks = 0ULL;
+
+    if (opponent == White)
+    {
+        pawnAttacks = ((pawns << 7) & 0x7F7F7F7F7F7F7F7FULL) | ((pawns << 9) & 0xFEFEFEFEFEFEFEFEULL);
+    }
+    else
+    {
+        pawnAttacks = ((pawns >> 9) & 0x7F7F7F7F7F7F7F7FULL) | ((pawns >> 7) & 0xFEFEFEFEFEFEFEFEULL);
+    }
+    if (pawnAttacks & kingSrc)
+    {
+        return true;
+    }
+
+    for (int i = 0; i < moves.count; ++i)
+    {
+        int destination = (moves.moves[i] >> 6) & 0x3f;
+        uint64_t destMask = 1ULL << destination;
+
+        int src = (moves.moves[i] & 0x3F);
+
+        if (getPieceAtSquare(board, src) == Pawn)
+        {
+            continue;
+        }
+
+        if (kingSrc & destMask)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool makeMove(Board &board, uint16_t move)
 {
+    Board boardCopy = board;
+
     int src = move & 0x3F;
     int dest = (move >> 6) & 0x3F;
 
@@ -601,9 +669,17 @@ bool makeMove(Board &board, uint16_t move)
 
     board.updateOccupancy();
 
-    board.sideToMove = enemySide;
+    if (isInCheck(board))
+    {
+        board = boardCopy;
+        return false;
+    }
+    else
+    {
+        board.sideToMove = enemySide;
 
-    return true;
+        return true;
+    }
 }
 
 int cordToMove(const std::string &input)
@@ -752,6 +828,17 @@ int mouseToSquare(int x, int y, int squareSize)
     return rankReal * 8 + file;
 }
 
+void unloadTextures(PieceTexture textures)
+{
+    for (int side = 0; side < 2; ++side)
+    {
+        for (int piece = 0; piece < 6; ++piece)
+        {
+            UnloadTexture(textures.textures[side][piece]);
+        }
+    }
+}
+
 int main()
 {
     knightLookup();
@@ -805,4 +892,7 @@ int main()
 
         EndDrawing();
     };
+
+    unloadTextures(pieceTexture);
+    CloseWindow();
 }

@@ -943,4 +943,5 @@ int main()
 
     unloadTextures(pieceTexture);
     CloseWindow();
+    return 0;
 }

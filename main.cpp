@@ -2,6 +2,8 @@
 #include <iostream>
 #include <string>
 #include <raylib.h>
+#include <sstream>
+#include <cctype>
 
 using namespace std;
 
@@ -91,6 +93,8 @@ public:
     int castlingRights;
     uint64_t enPassantSquares;
     int enPassantDest;
+    int halfmoveClock = 0;
+    int fullMoveNumber = 1;
 
     Board()
     {
@@ -204,9 +208,9 @@ void kingLookup()
         // down
         attacks |= (king >> 8);
         // up-left
-        attacks |= (king << 7) & notFileA;
+        attacks |= (king << 7) & notFileH;
         // up-right
-        attacks |= (king << 9) & notFileH;
+        attacks |= (king << 9) & notFileA;
         // down-right
         attacks |= (king >> 7) & notFileA;
         // down-left
@@ -1331,6 +1335,181 @@ uint64_t perft(Board board, int depth)
     return nodes;
 }
 
+bool loadFEN(Board &board, const std::string &fen)
+{
+    std::istringstream stream(fen);
+
+    std::string piecePlacement;
+    std::string activeColor;
+    std::string castling;
+    std::string enPassant;
+    int halfMoveClock;
+    int fullMoveNumber;
+
+    if (!(stream >> piecePlacement >> activeColor >> castling >> enPassant >> halfMoveClock >> fullMoveNumber))
+    {
+        return false;
+    }
+
+    for (int i = 0; i < 2; ++i)
+    {
+        for (int p = 0; p < 6; ++p)
+        {
+            board.pieces[i][p] = 0ULL;
+        }
+    }
+
+    int rank = 7;
+    int file = 0;
+
+    for (char character : piecePlacement)
+    {
+        if (character == '/')
+        {
+            if (file != 8)
+            {
+                return false;
+            }
+            --rank;
+            file = 0;
+            continue;
+        }
+        if (std::isdigit(static_cast<unsigned char>(character)))
+        {
+            file += character - '0';
+            if (file > 8)
+                return false;
+            continue;
+        }
+        if (rank < 0 || rank >= 8)
+        {
+            return false;
+        }
+        myColor side = std::isupper(static_cast<unsigned char>(character)) ? White : Black;
+
+        char pieceCharacter = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
+
+        int pieceType = -1;
+
+        switch (pieceCharacter)
+        {
+        case 'p':
+            pieceType = Pawn;
+            break;
+        case 'n':
+            pieceType = Knight;
+            break;
+        case 'r':
+            pieceType = Rook;
+            break;
+        case 'q':
+            pieceType = Queen;
+            break;
+        case 'b':
+            pieceType = Bishop;
+            break;
+        case 'k':
+            pieceType = King;
+            break;
+
+        default:
+            return false;
+        }
+        int square = rank * 8 + file;
+        board.pieces[side][pieceType] |= 1ULL << square;
+        ++file;
+    }
+    if (rank != 0 || file != 8)
+        return false;
+
+    if (activeColor == "w")
+    {
+        board.sideToMove = White;
+    }
+    else if (activeColor == "b")
+    {
+        board.sideToMove = Black;
+    }
+    else
+        return false;
+
+    board.castlingRights = 0;
+    if (castling != "-")
+    {
+        for (char right : castling)
+        {
+            switch (right)
+            {
+            case 'K':
+                board.castlingRights |= WhiteKingSide;
+                break;
+            case 'Q':
+                board.castlingRights |= WhiteQueenSide;
+                break;
+            case 'k':
+                board.castlingRights |= BlackKingSide;
+                break;
+            case 'q':
+                board.castlingRights |= BlackQueenSide;
+                break;
+
+            default:
+                return false;
+            }
+        }
+    }
+
+    board.enPassantSquares = 0ULL;
+    board.enPassantDest = -1;
+
+    if (enPassant != "-")
+    {
+        if (enPassant.length() != 2)
+        {
+            return false;
+        }
+
+        int dest = cordToMove(enPassant);
+
+        if (dest == -1)
+        {
+            return false;
+        }
+
+        board.enPassantDest = dest;
+
+        uint64_t possibleCaptures = 0ULL;
+
+        if (board.sideToMove == White)
+        {
+            if (dest >= 7)
+                possibleCaptures |= 1ULL << (dest - 7);
+            if (dest >= 9)
+                possibleCaptures |= 1ULL << (dest - 9);
+
+            possibleCaptures &= board.pieces[White][Pawn];
+        }
+        else
+        {
+            if (dest + 7 < 64)
+                possibleCaptures |= 1ULL << (dest + 7);
+            if (dest + 9 < 64)
+                possibleCaptures |= 1ULL << (dest + 9);
+
+            possibleCaptures &= board.pieces[Black][Pawn];
+        }
+
+        board.enPassantSquares = possibleCaptures;
+    }
+
+    board.fullMoveNumber = fullMoveNumber;
+    board.halfmoveClock = halfMoveClock;
+
+    board.updateOccupancy();
+
+    return true;
+}
+
 int main()
 {
     knightLookup();
@@ -1450,6 +1629,16 @@ int main()
 //     Board chessBoard;
 //     knightLookup();
 //     kingLookup();
+
+//     std::string fen = "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8";
+
+//     if (!(loadFEN(chessBoard, fen)))
+//     {
+//         std::cerr << "Failed to load FEN";
+//         return 1;
+//     }
+
+//     printBoard(chessBoard);
 
 //     std::cout << "Depth 1: " << perft(chessBoard, 1) << '\n';
 //     std::cout << "Depth 2: " << perft(chessBoard, 2) << '\n';

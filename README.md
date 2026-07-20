@@ -6,7 +6,7 @@
 
 ## Current State
 
-* As of 07/19/26, the GUI is running, moves work, checks, checkmates, and stalemates work too. en passant and castling work now too, but working on pawn promotion.
+* As of 07/20/26, entire base game works EXCEPT FOR draw conditions like 50 move rule etc. need to work on game evaluation and building my own bot now. 
 
 ## Roadmap
 

@@ -23,6 +23,7 @@
 
 * Please do! 
 
-## Contributers
+## Contributors
 
 * Owner [WillZlog](https://github.com/WillZlog)
+* [Hirdaya-Shrestha](https://github.com/Hirdaya-Shrestha)

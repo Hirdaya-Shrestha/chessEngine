@@ -4,6 +4,7 @@
 #include <raylib.h>
 #include <sstream>
 #include <cctype>
+#include <vector>
 
 using namespace std;
 
@@ -95,6 +96,7 @@ public:
     int enPassantDest;
     int halfmoveClock = 0;
     int fullMoveNumber = 1;
+    std::vector<uint64_t> positionHistory;
 
     Board()
     {
@@ -120,6 +122,7 @@ public:
         pieces[Black][Queen] = 0x0800000000000000;
         pieces[Black][King] = 0x1000000000000000;
 
+        castlingRights = WhiteKingSide | WhiteQueenSide | BlackKingSide | BlackQueenSide;
         updateOccupancy();
     }
 
@@ -135,6 +138,18 @@ public:
         allPieces = whitePieces | blackPieces;
     }
 };
+
+uint64_t computePositionKey(const Board &board)
+{
+    uint64_t key = 0;
+    for (int c = 0; c < 2; ++c)
+        for (int p = 0; p < 6; ++p)
+            key ^= board.pieces[c][p];
+    key ^= (uint64_t)board.sideToMove;
+    key ^= (uint64_t)board.castlingRights << 1;
+    key ^= (uint64_t)(board.enPassantDest + 1) << 3;
+    return key;
+}
 
 struct movesList
 {
@@ -1015,6 +1030,20 @@ bool makeMove(Board &board, uint16_t move)
     {
         board.sideToMove = enemySide;
 
+        bool isCapture = (flag == EnPassantMove);
+        if (!isCapture)
+            for (int i = 0; i < 6 && !isCapture; ++i)
+                isCapture = boardCopy.pieces[enemySide][i] & destMask;
+
+        if (movingPiece == Pawn || isCapture)
+            board.halfmoveClock = 0;
+        else
+            board.halfmoveClock++;
+
+        if (movingSide == Black)
+            board.fullMoveNumber++;
+
+        board.positionHistory.push_back(computePositionKey(board));
         return true;
     }
 }
@@ -1209,6 +1238,49 @@ bool isStalemate(const Board &board)
     }
 
     return !hasLegalMove(board);
+}
+
+bool isDrawByRepetition(const Board &board)
+{
+    if (board.positionHistory.size() < 3)
+        return false;
+    uint64_t current = board.positionHistory.back();
+    int count = 0;
+    for (auto k : board.positionHistory)
+        if (k == current) count++;
+    return count >= 3;
+}
+
+bool isInsufficientMaterial(const Board &board)
+{
+    uint64_t wk = board.pieces[White][King];
+    uint64_t bk = board.pieces[Black][King];
+    uint64_t all = board.allPieces;
+
+    if (all == (wk | bk))
+        return true;
+
+    uint64_t wNonKing = board.whitePieces & ~wk;
+    uint64_t bNonKing = board.blackPieces & ~bk;
+    int wc = __builtin_popcountll(wNonKing);
+    int bc = __builtin_popcountll(bNonKing);
+
+    if (bc == 0 && wc == 1 && (wNonKing & (board.pieces[White][Bishop] | board.pieces[White][Knight])))
+        return true;
+    if (wc == 0 && bc == 1 && (bNonKing & (board.pieces[Black][Bishop] | board.pieces[Black][Knight])))
+        return true;
+
+    if (wc == 1 && bc == 1 &&
+        (wNonKing & board.pieces[White][Bishop]) &&
+        (bNonKing & board.pieces[Black][Bishop]))
+    {
+        int ws = __builtin_ctzll(wNonKing);
+        int bs = __builtin_ctzll(bNonKing);
+        if (((ws / 8 + ws % 8) & 1) == ((bs / 8 + bs % 8) & 1))
+            return true;
+    }
+
+    return false;
 }
 
 bool isPromotionMove(int flag)
@@ -1518,6 +1590,7 @@ int main()
     movesList moves;
 
     chessBoard.castlingRights = WhiteKingSide | WhiteQueenSide | BlackKingSide | BlackQueenSide;
+    chessBoard.positionHistory.push_back(computePositionKey(chessBoard));
 
     const int squareSize = 100;
     const int boardSize = squareSize * 8;
@@ -1527,6 +1600,8 @@ int main()
     int promotionSource = -1;
     int promotionDest = -1;
     movesList promotionMoves;
+    bool gameOver = false;
+    const char *gameOverText = nullptr;
 
     InitWindow(boardSize, boardSize, "Chess");
     SetTargetFPS(60);
@@ -1535,7 +1610,21 @@ int main()
 
     while (!WindowShouldClose())
     {
-        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+        auto checkGameOver = [&]() {
+            if (isCheckmate(chessBoard))
+                { gameOverText = "Checkmate"; gameOver = true; }
+            else if (isStalemate(chessBoard))
+                { gameOverText = "Stalemate"; gameOver = true; }
+            else if (chessBoard.halfmoveClock >= 100)
+                { gameOverText = "Draw (50-move)"; gameOver = true; }
+            else if (isDrawByRepetition(chessBoard))
+                { gameOverText = "Draw (repetition)"; gameOver = true; }
+            else if (isInsufficientMaterial(chessBoard))
+                { gameOverText = "Draw (insufficient material)"; gameOver = true; }
+            if (gameOver) std::cout << '\n' << gameOverText << '\n';
+        };
+
+        if (!gameOver && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
         {
             if (choosingPromotion)
             {
@@ -1544,14 +1633,7 @@ int main()
                     choosingPromotion = false;
                     promotionSource = -1;
                     promotionDest = -1;
-                    if (isCheckmate(chessBoard))
-                    {
-                        std::cout << "\n Checkmate \n";
-                    }
-                    else if (isStalemate(chessBoard))
-                    {
-                        std::cout << "\n Stalemate \n";
-                    }
+                    checkGameOver();
                 }
             }
             else
@@ -1586,14 +1668,7 @@ int main()
                             {
                                 if (makeMove(chessBoard, foundMove))
                                 {
-                                    if (isCheckmate(chessBoard))
-                                    {
-                                        std::cout << "\n Checkmate \n";
-                                    }
-                                    else if (isStalemate(chessBoard))
-                                    {
-                                        std::cout << "\n Stalemate \n";
-                                    }
+                                    checkGameOver();
                                 }
                             }
                         }
@@ -1609,6 +1684,13 @@ int main()
         drawBoard(squareSize);
         drawSelectedSquare(selectedsquare, squareSize);
         drawPieces(chessBoard, pieceTexture, squareSize);
+
+        if (gameOverText)
+        {
+            int fontSize = 40;
+            int textWidth = MeasureText(gameOverText, fontSize);
+            DrawText(gameOverText, (boardSize - textWidth) / 2, boardSize / 2 - fontSize / 2, fontSize, RED);
+        }
 
         if (choosingPromotion)
         {

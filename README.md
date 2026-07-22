@@ -6,7 +6,7 @@
 
 ## Current State
 
-* As of 07/20/26, entire base game works EXCEPT FOR draw conditions like 50 move rule etc. need to work on game evaluation and building my own bot now. 
+* As of 07/22/26, entire base game works including draw conditions like 50 move rule etc. need to work on game evaluation and building my own bot now. 
 
 ## Roadmap
 
@@ -15,9 +15,10 @@
 3. ~~Add checkmates~~
 4. ~~En Passant and castling~~
 5. ~~Pawn Promotion~~
-6. Add a better start game / rematch GUI
-7. Self trained evaluation bar
-8. Different bot strengths
+--------------------------------------------------
+7. Add a better start game / rematch GUI
+8. Self trained evaluation bar
+9. Different bot strengths
 
 ## Contributing
 

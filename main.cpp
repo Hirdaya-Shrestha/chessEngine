@@ -5,6 +5,7 @@
 #include <sstream>
 #include <cctype>
 #include <vector>
+#include <random>
 
 using namespace std;
 
@@ -153,15 +154,64 @@ public:
     }
 };
 
+uint64_t zobristSide;
+std::array<uint64_t, 16> zobristCastling;
+std::array<uint64_t, 8> zobristEnPassant;
+std::array<std::array<std::array<uint64_t, 64>, 6>, 2> zobristPieces;
+
+void initZobrist()
+{
+    std::mt19937_64 rng(0x9E3779B97F4A7C15ULL);
+
+    for (int color = 0; color < 2; ++color)
+    {
+        for (int piece = 0; piece < 6; ++piece)
+        {
+            for (int square = 0; square < 64; ++square)
+            {
+                zobristPieces[color][piece][square] = rng();
+            }
+        }
+    }
+
+    zobristSide = rng();
+    for (uint64_t &key : zobristCastling)
+    {
+        key = rng();
+    }
+    for (uint64_t &key : zobristEnPassant)
+    {
+        key = rng();
+    }
+}
+
 uint64_t computePositionKey(const Board &board)
 {
     uint64_t key = 0;
     for (int c = 0; c < 2; ++c)
+    {
         for (int p = 0; p < 6; ++p)
-            key ^= board.pieces[c][p];
-    key ^= (uint64_t)board.sideToMove;
-    key ^= (uint64_t)board.castlingRights << 1;
-    key ^= (uint64_t)(board.enPassantDest + 1) << 3;
+        {
+            uint64_t bitboard = board.pieces[c][p];
+            while (bitboard)
+            {
+                int square = __builtin_ctzll(bitboard);
+                bitboard &= bitboard - 1;
+
+                key ^= zobristPieces[c][p][square];
+            }
+        }
+    }
+
+    if (board.sideToMove == Black)
+    {
+        key ^= zobristSide;
+    }
+    key ^= zobristCastling[board.castlingRights];
+    if (board.enPassantDest != -1)
+    {
+        key ^= zobristEnPassant[board.enPassantDest & 7];
+    }
     return key;
 }
 
@@ -1231,14 +1281,14 @@ void unloadTextures(PieceTexture textures)
     }
 }
 
-bool hasLegalMove(const Board &board)
+bool hasLegalMove(const Board &board, undoInfo &undo)
 {
     movesList moves = generateMoves(board);
 
     for (int i = 0; i < moves.count; ++i)
     {
         Board copy = board;
-        if (makeMove(copy, moves.moves[i]))
+        if (makeMove(copy, moves.moves[i], undo))
         {
             return true;
         }
@@ -1246,24 +1296,24 @@ bool hasLegalMove(const Board &board)
     return false;
 }
 
-bool isCheckmate(const Board &board)
+bool isCheckmate(const Board &board, undoInfo &undo)
 {
     if (!isInCheck(board, board.sideToMove))
     {
         return false;
     }
 
-    return !hasLegalMove(board);
+    return !hasLegalMove(board, undo);
 }
 
-bool isStalemate(const Board &board)
+bool isStalemate(const Board &board, undoInfo &undo)
 {
     if (isInCheck(board, board.sideToMove))
     {
         return false;
     }
 
-    return !hasLegalMove(board);
+    return !hasLegalMove(board, undo);
 }
 
 bool isDrawByRepetition(const Board &board)
@@ -1273,7 +1323,8 @@ bool isDrawByRepetition(const Board &board)
     uint64_t current = board.positionHistory.back();
     int count = 0;
     for (auto k : board.positionHistory)
-        if (k == current) count++;
+        if (k == current)
+            count++;
     return count >= 3;
 }
 
@@ -1370,7 +1421,7 @@ void drawPromotionMenu(const PieceTexture &pieceTextures, myColor side, int squa
     }
 }
 
-bool handlePromotionClick(Board &board, const movesList &promotionList, int squareSize)
+bool handlePromotionClick(Board &board, const movesList &promotionList, int squareSize, undoInfo &undo)
 {
     Vector2 mouse = GetMousePosition();
     int menuWidth = squareSize * 4;
@@ -1405,32 +1456,11 @@ bool handlePromotionClick(Board &board, const movesList &promotionList, int squa
 
         if (promotionOption == option)
         {
-            return makeMove(board, move);
+            return makeMove(board, move, undo);
         }
     }
 
     return false;
-}
-
-uint64_t perft(Board board, int depth)
-{
-    if (depth == 0)
-    {
-        return 1;
-    }
-
-    movesList moves = generateMoves(board);
-    uint64_t nodes = 0;
-
-    for (int i = 0; i < moves.count; ++i)
-    {
-        Board copy = board;
-        if (makeMove(copy, moves.moves[i]))
-        {
-            nodes += perft(copy, depth - 1);
-        }
-    }
-    return nodes;
 }
 
 bool loadFEN(Board &board, const std::string &fen)
@@ -1608,14 +1638,14 @@ bool loadFEN(Board &board, const std::string &fen)
     return true;
 }
 
-bool undoMove(Board &board, uint16_t undoMove, undoInfo &undo)
+void undoMove(Board &board, uint16_t move, undoInfo &undo)
 {
-    int src = undoMove & 0x3F;
-    int dest = (undoMove << 6) & 0x3F;
-    int flag = (undoMove << 12) & 0xF;
+    int src = move & 0x3F;
+    int dest = (move >> 6) & 0x3F;
+    int flag = (move >> 12) & 0xF;
 
-    int srcMask = 1ULL << src;
-    int destMask = 1ULL << dest;
+    uint64_t srcMask = 1ULL << src;
+    uint64_t destMask = 1ULL << dest;
 
     myColor side = (board.sideToMove == White) ? Black : White;
 
@@ -1659,13 +1689,67 @@ bool undoMove(Board &board, uint16_t undoMove, undoInfo &undo)
         if (side == White)
         {
             board.pieces[White][Rook] &= ~(1ULL << 5);
-            board.pieces[Wht]
+            board.pieces[White][Rook] |= (1ULL << 7);
+        }
+        else
+        {
+            board.pieces[Black][Rook] &= ~(1ULL << 61);
+            board.pieces[Black][Rook] |= (1ULL << 63);
         }
     }
+    else if (flag == QueenCastle)
+    {
+        if (side == White)
+        {
+            board.pieces[White][Rook] &= ~(1ULL << 3);
+            board.pieces[White][Rook] |= (1ULL << 0);
+        }
+        else
+        {
+            board.pieces[Black][Rook] &= ~(1ULL << 59);
+            board.pieces[Black][Rook] |= (1ULL << 56);
+        }
+    }
+
+    if (undo.capturedPiece != -1)
+    {
+        board.pieces[enemySide][undo.capturedPiece] |= 1ULL << undo.capturedSquare;
+    }
+
+    board.castlingRights = undo.prevCastlingRights;
+    board.enPassantSquares = undo.prevEnpassantSquares;
+    board.enPassantDest = undo.prevEnpassantDest;
+    board.fullMoveNumber = undo.prevFullMoveNumber;
+    board.halfmoveClock = undo.prevHalfClock;
+    board.sideToMove = side;
+    board.updateOccupancy();
+}
+
+uint64_t perft(Board board, int depth)
+{
+    if (depth == 0)
+    {
+        return 1;
+    }
+
+    movesList moves = generateMoves(board);
+    uint64_t nodes = 0;
+
+    for (int i = 0; i < moves.count; ++i)
+    {
+        undoInfo undo;
+        if (makeMove(board, moves.moves[i], undo))
+        {
+            nodes += perft(board, depth - 1);
+            undoMove(board, moves.moves[i], undo);
+        }
+    }
+    return nodes;
 }
 
 int main()
 {
+    initZobrist();
     undoInfo undo;
     knightLookup();
     kingLookup();
@@ -1693,25 +1777,43 @@ int main()
 
     while (!WindowShouldClose())
     {
-        auto checkGameOver = [&]() {
-            if (isCheckmate(chessBoard))
-                { gameOverText = "Checkmate"; gameOver = true; }
-            else if (isStalemate(chessBoard))
-                { gameOverText = "Stalemate"; gameOver = true; }
+        auto checkGameOver = [&]()
+        {
+            if (isCheckmate(chessBoard, undo))
+            {
+                gameOverText = "Checkmate";
+                gameOver = true;
+            }
+            else if (isStalemate(chessBoard, undo))
+            {
+                gameOverText = "Stalemate";
+                gameOver = true;
+            }
             else if (chessBoard.halfmoveClock >= 100)
-                { gameOverText = "Draw (50-move)"; gameOver = true; }
+            {
+                gameOverText = "Draw (50-move)";
+                gameOver = true;
+            }
             else if (isDrawByRepetition(chessBoard))
-                { gameOverText = "Draw (repetition)"; gameOver = true; }
+            {
+                gameOverText = "Draw (repetition)";
+                gameOver = true;
+            }
             else if (isInsufficientMaterial(chessBoard))
-                { gameOverText = "Draw (insufficient material)"; gameOver = true; }
-            if (gameOver) std::cout << '\n' << gameOverText << '\n';
+            {
+                gameOverText = "Draw (insufficient material)";
+                gameOver = true;
+            }
+            if (gameOver)
+                std::cout << '\n'
+                          << gameOverText << '\n';
         };
 
         if (!gameOver && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
         {
             if (choosingPromotion)
             {
-                if (handlePromotionClick(chessBoard, promotionMoves, squareSize))
+                if (handlePromotionClick(chessBoard, promotionMoves, squareSize, undo))
                 {
                     choosingPromotion = false;
                     promotionSource = -1;
@@ -1749,7 +1851,7 @@ int main()
 
                             if (findMove(moves, selectedsquare, clickedSquare, foundMove))
                             {
-                                if (makeMove(chessBoard, foundMove))
+                                if (makeMove(chessBoard, foundMove, undo))
                                 {
                                     checkGameOver();
                                 }
@@ -1790,27 +1892,27 @@ int main()
 
 //! USE THIS MAIN ONLY FOR TESTING
 // int main()
-// {
-//     Board chessBoard;
-//     knightLookup();
-//     kingLookup();
+    // {
+    //     Board chessBoard;
+    //     knightLookup();
+    //     kingLookup();
 
-//     std::string fen = "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8";
+    //     std::string fen = "r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1";
 
-//     if (!(loadFEN(chessBoard, fen)))
-//     {
-//         std::cerr << "Failed to load FEN";
-//         return 1;
-//     }
+    //     if (!(loadFEN(chessBoard, fen)))
+    //     {
+    //         std::cerr << "Failed to load FEN";
+    //         return 1;
+    //     }
 
-//     printBoard(chessBoard);
+    //     printBoard(chessBoard);
 
-//     std::cout << "Depth 1: " << perft(chessBoard, 1) << '\n';
-//     std::cout << "Depth 2: " << perft(chessBoard, 2) << '\n';
-//     std::cout << "Depth 3: " << perft(chessBoard, 3) << '\n';
-//     std::cout << "Depth 4: " << perft(chessBoard, 4) << '\n';
-//     std::cout << "Depth 5: " << perft(chessBoard, 5) << '\n';
-//     std::cout << "Depth 6: " << perft(chessBoard, 6) << '\n';
+    //     std::cout << "Depth 1: " << perft(chessBoard, 1) << '\n';
+    //     std::cout << "Depth 2: " << perft(chessBoard, 2) << '\n';
+    //     std::cout << "Depth 3: " << perft(chessBoard, 3) << '\n';
+    //     std::cout << "Depth 4: " << perft(chessBoard, 4) << '\n';
+    //     std::cout << "Depth 5: " << perft(chessBoard, 5) << '\n';
+    //     std::cout << "Depth 6: " << perft(chessBoard, 6) << '\n';
 
-//     return 0;
-// }
+    //     return 0;
+    // }
